@@ -19,22 +19,18 @@ const DBConnecton_1 = require("./config/DBConnecton");
 const userCredentialValidator_1 = require("./middlewares/userCredentialValidator");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const authMiddleware_1 = require("./middlewares/authMiddleware");
+const ContentModel_1 = require("./models/ContentModel");
+dotenv_1.default.config();
 if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET is not defined");
 }
 const JWT_SECRET = process.env.JWT_SECRET;
-dotenv_1.default.config();
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
 // need to define routes here
 // Routes:
 /*
-    /api/v1
-    Authentication routes:
-    /api/v1
-    Sign up -> post -> /api/v1/signup
-    Login -> post -> /api/v1/login
-
     Content Routes -> authenticated routes:
     Get Content Routes -> api/v1/contents
     create new content  -> POST-> api/v1/contents
@@ -103,6 +99,41 @@ app.post("/api/v1/signin", userCredentialValidator_1.userCredentalValidator, (re
         res.status(403).json({
             message: "Invalid credentials"
         });
+        return;
+    }
+}));
+app.get("/api/v1/contents", authMiddleware_1.authMiddleware, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // Here we just fetch the contents from the content model
+    try {
+        const contentForUser = yield ContentModel_1.ContentModel.find({
+            userId: req.userId,
+        });
+        res.status(200).json({
+            message: "Protected route accessed",
+            content: contentForUser,
+        });
+    }
+    catch (e) {
+        res.status(500).json({ message: "Server error, try again later" });
+        return;
+    }
+}));
+app.post("/api/v1/contents", authMiddleware_1.authMiddleware, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // Here we just fetch the contents from the content model
+    const contentBody = req.body;
+    try {
+        yield ContentModel_1.ContentModel.create({
+            title: contentBody.title,
+            link: contentBody.link,
+            type: contentBody.type,
+            userId: req.userId,
+        });
+        res.status(200).json({
+            message: "Content created successfully"
+        });
+    }
+    catch (e) {
+        res.status(500).json({ message: "Server error, try again later" });
         return;
     }
 }));

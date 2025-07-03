@@ -1,33 +1,27 @@
 import express, { request, Request, response, Response } from "express";
-import {z} from "zod";
 import bcrypt from "bcrypt";
 import { UserModel } from "./models/UserModel";
 import { connection } from "./config/DBConnecton";
-import { userSignupSchema, FinalUserSignupSchema } from "./zodSchemas/userSignupSchema";
+import { FinalUserSignupSchema } from "./zodSchemas/userSignupSchema";
 import { userCredentalValidator } from "./middlewares/userCredentialValidator";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { authMiddleware } from "./middlewares/authMiddleware";
+import { ContentModel } from "./models/ContentModel";
+import { FinalUserContentSchema } from "./zodSchemas/userContentSchema";
+dotenv.config();
 
 if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET is not defined");
 }
-
 const JWT_SECRET = process.env.JWT_SECRET;
 
-
-dotenv.config();
 const app = express();
 app.use(express.json())
 // need to define routes here
 
 // Routes:
-/* 
-    /api/v1
-    Authentication routes:
-    /api/v1
-    Sign up -> post -> /api/v1/signup
-    Login -> post -> /api/v1/login
-
+/*  
     Content Routes -> authenticated routes:
     Get Content Routes -> api/v1/contents
     create new content  -> POST-> api/v1/contents
@@ -43,8 +37,6 @@ app.use(express.json())
     GET /api/v1/brain/share
 
 */
-
-
 
 app.post("/api/v1/signup", userCredentalValidator,async (req: Request, res: Response) => {
 
@@ -108,6 +100,49 @@ app.post("/api/v1/signin", userCredentalValidator, async (req: Request, res: Res
     }
 
 })
+
+app.get("/api/v1/contents",authMiddleware, async (req: Request, res:Response) => {
+    // Here we just fetch the contents from the content model
+
+    try {
+        const contentForUser = await ContentModel.find({
+            userId: req.userId,
+        })
+        res.status(200).json({
+            message:"Protected route accessed",
+            content: contentForUser,
+        })
+    }catch(e) {
+        res.status(500).json({ message: "Server error, try again later"});
+        return;
+    }
+    
+
+   
+})
+
+app.post("/api/v1/contents",authMiddleware, async (req: Request, res:Response) => {
+    // Here we just fetch the contents from the content model
+
+    const contentBody:FinalUserContentSchema = req.body;
+
+    try {
+        await ContentModel.create({
+            title: contentBody.title,
+            link: contentBody.link,
+            type: contentBody.type,
+            userId: req.userId,
+        })    
+         res.status(200).json({
+            message: "Content created successfully"
+        })
+    }catch(e: any) {
+        res.status(500).json({ message: "Server error, try again later"});
+        return;
+    }
+})
+
+
 
 
 connection.then(() => {

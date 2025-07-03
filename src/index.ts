@@ -9,6 +9,11 @@ import dotenv from "dotenv";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { ContentModel } from "./models/ContentModel";
 import { FinalUserContentSchema } from "./zodSchemas/userContentSchema";
+import { userContentValidator } from "./middlewares/userContentValidator";
+import { userShareValidator } from "./middlewares/userShareValidator";
+import { LinkModel } from "./models/LinkModel";
+import { FinalUserShareSchema } from "./zodSchemas/userShareSchema";
+import { randomHashGenerator } from "./config/randomHashGenerator";
 dotenv.config();
 
 if (!process.env.JWT_SECRET) {
@@ -22,9 +27,11 @@ app.use(express.json())
 
 // Routes:
 /*  
-    Content Routes -> authenticated routes:
-    Get Content Routes -> api/v1/contents
-    create new content  -> POST-> api/v1/contents
+    // Content Routes -> authenticated routes:
+    // Get Content Routes -> api/v1/contents
+    // create new content  -> POST-> api/v1/contents
+    
+    //Have to implement this, maybe later :=)
     Get a particular content -> GET /api/v1/contents/:content_id
     update content route -> PUT -> /api/v1/contents/:content_id
 
@@ -121,7 +128,7 @@ app.get("/api/v1/contents",authMiddleware, async (req: Request, res:Response) =>
    
 })
 
-app.post("/api/v1/contents",authMiddleware, async (req: Request, res:Response) => {
+app.post("/api/v1/contents",authMiddleware, userContentValidator,async (req: Request, res:Response) => {
     // Here we just fetch the contents from the content model
 
     const contentBody:FinalUserContentSchema = req.body;
@@ -142,6 +149,102 @@ app.post("/api/v1/contents",authMiddleware, async (req: Request, res:Response) =
     }
 })
 
+
+app.delete("/api/v1/content", authMiddleware, async (req, res) => {
+    const contentId = req.body.contentId;
+
+    try {
+        await ContentModel.deleteMany({
+            contentId,
+            userId: req.userId
+        })
+
+        res.json({
+            message: "Deleted"
+        })
+    }catch(e: any) {
+        res.status(500).json({ message: "Server error, try again later"});
+        return;
+    }
+    
+})
+
+// Need to implement share and get Shared Content link
+
+app.post("/api/v1/brain/share", authMiddleware, userShareValidator,async (req: Request, res: Response) => {
+    const share:FinalUserShareSchema = req.body.share;
+    // share is a boolean passed in body
+    // Need to do validation here as well
+    if(share) {
+        //Create a share hash for the current user
+        //first check if it alread exists
+        try {
+            const existingHash = await LinkModel.findOne({
+                userId:req.userId,
+            })
+            if(existingHash) {
+                res.status(200).json({
+                    hash: existingHash.hash
+                })
+                return;
+            }
+            // we need to create a random hash now
+            const randomHash = randomHashGenerator(10);
+            await LinkModel.create({
+                hash: randomHash,
+                userId: req.userId
+            })
+
+            res.status(200).json({
+                hash: randomHash
+            })
+            return;
+        }catch(e) {
+            res.status(500).json({ message: "Server error, try again later"});
+            return;
+        }
+
+    }else {
+        //if share set to boolean false => delete any links associated with current user
+        await LinkModel.deleteMany({
+            userId: req.userId,
+        })
+
+        res.status(200).json({
+            message: "Deleted share link hash"
+        })
+    }
+
+})
+
+
+app.get("/api/v1/brain/share/:shareLink", async(req, res) => {
+    const hash = req.params.shareLink;
+
+    const link = await LinkModel.findOne({
+        hash
+    })
+
+    console.log(link)
+    console.log(hash)
+
+    // userid in link
+
+    if(link) {
+        const contents = await ContentModel.find({
+            userId: link.userId
+        })
+        res.status(200).json({
+            contents
+        })
+    }else {
+        res.status(411).json({
+            message: "Incorrect share link"
+        })
+    }
+
+    
+})
 
 
 

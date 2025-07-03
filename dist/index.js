@@ -21,6 +21,10 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const authMiddleware_1 = require("./middlewares/authMiddleware");
 const ContentModel_1 = require("./models/ContentModel");
+const userContentValidator_1 = require("./middlewares/userContentValidator");
+const userShareValidator_1 = require("./middlewares/userShareValidator");
+const LinkModel_1 = require("./models/LinkModel");
+const randomHashGenerator_1 = require("./config/randomHashGenerator");
 dotenv_1.default.config();
 if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET is not defined");
@@ -31,9 +35,11 @@ app.use(express_1.default.json());
 // need to define routes here
 // Routes:
 /*
-    Content Routes -> authenticated routes:
-    Get Content Routes -> api/v1/contents
-    create new content  -> POST-> api/v1/contents
+    // Content Routes -> authenticated routes:
+    // Get Content Routes -> api/v1/contents
+    // create new content  -> POST-> api/v1/contents
+    
+    //Have to implement this, maybe later :=)
     Get a particular content -> GET /api/v1/contents/:content_id
     update content route -> PUT -> /api/v1/contents/:content_id
 
@@ -118,7 +124,7 @@ app.get("/api/v1/contents", authMiddleware_1.authMiddleware, (req, res) => __awa
         return;
     }
 }));
-app.post("/api/v1/contents", authMiddleware_1.authMiddleware, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post("/api/v1/contents", authMiddleware_1.authMiddleware, userContentValidator_1.userContentValidator, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     // Here we just fetch the contents from the content model
     const contentBody = req.body;
     try {
@@ -135,6 +141,88 @@ app.post("/api/v1/contents", authMiddleware_1.authMiddleware, (req, res) => __aw
     catch (e) {
         res.status(500).json({ message: "Server error, try again later" });
         return;
+    }
+}));
+app.delete("/api/v1/content", authMiddleware_1.authMiddleware, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const contentId = req.body.contentId;
+    try {
+        yield ContentModel_1.ContentModel.deleteMany({
+            contentId,
+            userId: req.userId
+        });
+        res.json({
+            message: "Deleted"
+        });
+    }
+    catch (e) {
+        res.status(500).json({ message: "Server error, try again later" });
+        return;
+    }
+}));
+// Need to implement share and get Shared Content link
+app.post("/api/v1/brain/share", authMiddleware_1.authMiddleware, userShareValidator_1.userShareValidator, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const share = req.body.share;
+    // share is a boolean passed in body
+    // Need to do validation here as well
+    if (share) {
+        //Create a share hash for the current user
+        //first check if it alread exists
+        try {
+            const existingHash = yield LinkModel_1.LinkModel.findOne({
+                userId: req.userId,
+            });
+            if (existingHash) {
+                res.status(200).json({
+                    hash: existingHash.hash
+                });
+                return;
+            }
+            // we need to create a random hash now
+            const randomHash = (0, randomHashGenerator_1.randomHashGenerator)(10);
+            yield LinkModel_1.LinkModel.create({
+                hash: randomHash,
+                userId: req.userId
+            });
+            res.status(200).json({
+                hash: randomHash
+            });
+            return;
+        }
+        catch (e) {
+            res.status(500).json({ message: "Server error, try again later" });
+            return;
+        }
+    }
+    else {
+        //if share set to boolean false => delete any links associated with current user
+        yield LinkModel_1.LinkModel.deleteMany({
+            userId: req.userId,
+        });
+        res.status(200).json({
+            message: "Deleted share link hash"
+        });
+    }
+}));
+app.get("/api/v1/brain/share/:shareLink", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const hash = req.params.shareLink;
+    const link = yield LinkModel_1.LinkModel.findOne({
+        hash
+    });
+    console.log(link);
+    console.log(hash);
+    // userid in link
+    if (link) {
+        const contents = yield ContentModel_1.ContentModel.find({
+            userId: link.userId
+        });
+        res.status(200).json({
+            contents
+        });
+    }
+    else {
+        res.status(411).json({
+            message: "Incorrect share link"
+        });
     }
 }));
 DBConnecton_1.connection.then(() => {

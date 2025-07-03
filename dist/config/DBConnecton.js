@@ -6,7 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.connection = void 0;
 // Need to setup connection to DB here
 const mongoose_1 = __importDefault(require("mongoose"));
-require("dotenv").config();
+const dotenv_1 = __importDefault(require("dotenv"));
+dotenv_1.default.config();
 /**
  * -------------- DATABASE ----------------
  */
@@ -18,6 +19,13 @@ require("dotenv").config();
  */
 const mongoURL = process.env.DB_STRING;
 if (!mongoURL) {
+    console.log("Error connecting to database:=)");
     throw new Error("DB_STRING is not defined in the .env file");
 }
-exports.connection = mongoose_1.default.createConnection(mongoURL);
+console.log("Creating connection");
+exports.connection = mongoose_1.default.connect(mongoURL)
+    .then(() => console.log("✅ Connected to MongoDB"))
+    .catch(err => {
+    console.error("❌ MongoDB connection error:", err);
+    process.exit(1);
+});

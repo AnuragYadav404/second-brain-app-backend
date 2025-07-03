@@ -1,6 +1,21 @@
 import express, { request, Request, response, Response } from "express";
-import {z} from "zod"
+import {z} from "zod";
+import bcrypt from "bcrypt";
+import { UserModel } from "./models/UserModel";
+import { connection } from "./config/DBConnecton";
+import { userSignupSchema, FinalUserSignupSchema } from "./zodSchemas/userSignupSchema";
+import { userCredentalValidator } from "./middlewares/userCredentialValidator";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
 
+if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not defined");
+}
+
+const JWT_SECRET = process.env.JWT_SECRET;
+
+
+dotenv.config();
 const app = express();
 app.use(express.json())
 // need to define routes here
@@ -29,44 +44,75 @@ app.use(express.json())
 
 */
 
-// How to do zod validation:
-// Define a schema
-const userSignupSchema = z.object({
-    username: z.string().min(3, "Username must be of minimum 3 characters").max(16, "username can be maximum of 16 characters"),
-    password: z.string().min(3, "Password must be of minimum 3 characters").max(16, "Password can be maximum of 16 characters")
+
+
+app.post("/api/v1/signup", userCredentalValidator,async (req: Request, res: Response) => {
+
+    // Hashing the password and storing it
+    const signupBody: FinalUserSignupSchema = req.body;    
+    const hashedPassword = await bcrypt.hash(signupBody.password, 5);
+    // Now we need to store the User in the database with the corresponding credentials :-)
+    // Might also need to check whether the username is already taken or not
+    // Unique constraint already does this for us
+    try {
+        await UserModel.create({
+            username: signupBody.username,
+            hashedPassword: hashedPassword
+        })    
+         res.status(200).json({
+            message: "Sign up Successful!"
+        })
+    }catch(e: any) {
+        console.log("DB Error:", e);
+        if (e.code=== 11000) {
+            res.status(409).json({ message: "Username already taken" });
+            return;
+        }
+        res.status(500).json({ message: "Server error, try again later"});
+        return;
+    }
 })
 
-// Declare a type, this becomes useful when exporting types to frontend
-type FinalUserSignupSchema = z.infer<typeof userSignupSchema>
 
-app.post("/api/v1/signup", (req: Request, res: Response) => {
-    // The user wants to sign-up
+app.post("/api/v1/signin", userCredentalValidator, async (req: Request, res: Response) => {
+    // now here, we need to generate token for the frontend
+    // token lifecycle is not being implemented here
+    const signinBody: FinalUserSignupSchema = req.body;
+    const userFromDatabase = await UserModel.findOne({
+        username: signinBody.username
+    })
+    // now we compare the password hash
+    if (!userFromDatabase) {
+        res.status(403).json({
+            message: "This user does not exist"
+        })
+        return;
+    }
 
-    // Retrieve the username and password from body fields
-    // const username = req.body.username;
-    // const password = req.body.password;
+    const passwordMatch = await bcrypt.compare(signinBody.password, userFromDatabase.hashedPassword);
 
-    ////Here we have to do two things:
-    // 1. Validating input fields with Zod
-    // Define valid Schema
-    // Define type from the valid schema for frontend export
-    const {success} = userSignupSchema.safeParse(req.body);
+    if(passwordMatch) {
+        const token = jwt.sign({
+            id:userFromDatabase._id.toString()
+        },JWT_SECRET);
 
-    if(!success) {
-        res.status(411).json({
+        res.status(200).json({
+            token
+        })
+
+    }else {
+        res.status(403).json({
             message: "Invalid credentials"
         })
         return;
     }
 
-    // 2. Hashing the password and storing it
-    const signupBody: FinalUserSignupSchema = req.body;    
-    // Need to hash and salt the password
-    // need to verify during signin
-    
 })
 
 
-app.listen(3000, () => {
-    console.log("Server is running on port 3000")
-})
+connection.then(() => {
+    console.log("Database connected")
+    app.listen(3000, () => {
+        console.log("🚀 Server running on port 3000");
+    });
+});

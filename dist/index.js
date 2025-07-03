@@ -1,10 +1,29 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
-const zod_1 = require("zod");
+const bcrypt_1 = __importDefault(require("bcrypt"));
+const UserModel_1 = require("./models/UserModel");
+const DBConnecton_1 = require("./config/DBConnecton");
+const userCredentialValidator_1 = require("./middlewares/userCredentialValidator");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const dotenv_1 = __importDefault(require("dotenv"));
+if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not defined");
+}
+const JWT_SECRET = process.env.JWT_SECRET;
+dotenv_1.default.config();
 const app = (0, express_1.default)();
 app.use(express_1.default.json());
 // need to define routes here
@@ -31,32 +50,65 @@ app.use(express_1.default.json());
     GET /api/v1/brain/share
 
 */
-// How to do zod validation:
-// Define a schema
-const userSignupSchema = zod_1.z.object({
-    username: zod_1.z.string().min(3, "Username must be of minimum 3 characters").max(16, "username can be maximum of 16 characters"),
-    password: zod_1.z.string().min(3, "Password must be of minimum 3 characters").max(16, "Password can be maximum of 16 characters")
-});
-app.post("/api/v1/signup", (req, res) => {
-    // The user wants to sign-up
-    // Retrieve the username and password from body fields
-    // const username = req.body.username;
-    // const password = req.body.password;
-    const { success } = userSignupSchema.safeParse(req.body);
-    if (!success) {
-        res.status(411).json({
+app.post("/api/v1/signup", userCredentialValidator_1.userCredentalValidator, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // Hashing the password and storing it
+    const signupBody = req.body;
+    const hashedPassword = yield bcrypt_1.default.hash(signupBody.password, 5);
+    // Now we need to store the User in the database with the corresponding credentials :-)
+    // Might also need to check whether the username is already taken or not
+    // Unique constraint already does this for us
+    try {
+        yield UserModel_1.UserModel.create({
+            username: signupBody.username,
+            hashedPassword: hashedPassword
+        });
+        res.status(200).json({
+            message: "Sign up Successful!"
+        });
+    }
+    catch (e) {
+        console.log("DB Error:", e);
+        if (e.code === 11000) {
+            res.status(409).json({ message: "Username already taken" });
+            return;
+        }
+        res.status(500).json({ message: "Server error, try again later" });
+        return;
+    }
+}));
+app.post("/api/v1/signin", userCredentialValidator_1.userCredentalValidator, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // now here, we need to generate token for the frontend
+    // token lifecycle is not being implemented here
+    const signinBody = req.body;
+    const userFromDatabase = yield UserModel_1.UserModel.findOne({
+        username: signinBody.username
+    });
+    // now we compare the password hash
+    if (!userFromDatabase) {
+        res.status(403).json({
+            message: "This user does not exist"
+        });
+        return;
+    }
+    const passwordMatch = yield bcrypt_1.default.compare(signinBody.password, userFromDatabase.hashedPassword);
+    if (passwordMatch) {
+        const token = jsonwebtoken_1.default.sign({
+            id: userFromDatabase._id.toString()
+        }, JWT_SECRET);
+        res.status(200).json({
+            token
+        });
+    }
+    else {
+        res.status(403).json({
             message: "Invalid credentials"
         });
         return;
     }
-    const signupBody = req.body;
-    res.status(200).json({
-        signupBody
+}));
+DBConnecton_1.connection.then(() => {
+    console.log("Database connected");
+    app.listen(3000, () => {
+        console.log("🚀 Server running on port 3000");
     });
-    //Here we have to do two things:
-    // 1. Validating input fields with Zod
-    // 2. Hashing the password and storing it
-});
-app.listen(3000, () => {
-    console.log("Server is running on port 3000");
 });
